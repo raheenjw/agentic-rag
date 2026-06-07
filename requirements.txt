@@ -1,0 +1,21 @@
+# Core app
+fastapi>=0.136
+uvicorn>=0.48
+inngest>=0.5
+python-dotenv>=1.2
+pydantic>=2.13
+
+# RAG & vectors
+openai>=2.40
+qdrant-client>=1.18
+llama-index-core>=0.14
+llama-index-readers-file>=0.6
+
+# Agent
+langchain-core>=1.4
+langchain-openai>=1.2
+langgraph>=1.2
+
+# UI
+streamlit>=1.58
+requests>=2.34
