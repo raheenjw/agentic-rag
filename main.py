@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from fastapi import FastAPI
 import inngest
 import inngest.fast_api
@@ -35,16 +36,32 @@ async def rag_ingest_pdf(ctx: inngest.Context):
     def _load(ctx: inngest.Context) -> RAGChunkAndSrc:
         pdf_path = ctx.event.data["pdf_path"]
         source_id = ctx.event.data.get("source_id", pdf_path)
+        content_hash = ctx.event.data.get("content_hash")
         chunks = load_and_chunk_pdf(pdf_path)
-        return RAGChunkAndSrc(chunks=chunks, source_id=source_id)
+        return RAGChunkAndSrc(chunks=chunks, source_id=source_id, content_hash=content_hash)
 
     def _upsert(chunks_and_src: RAGChunkAndSrc) -> RAGUpsertResult:
         chunks = chunks_and_src.chunks
         source_id = chunks_and_src.source_id
+        content_hash = chunks_and_src.content_hash
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        store = QdrantStorage()
+        store.delete_by_source(source_id)
+
         vecs = embed_texts(chunks)
         ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_id}:{i}")) for i in range(len(chunks))]
-        payloads = [{"source": source_id, "text": chunks[i]} for i in range(len(chunks))]
-        QdrantStorage().upsert(ids, vecs, payloads)
+        payloads = [
+            {
+                "source": source_id,
+                "text": chunks[i],
+                "chunk_index": i,
+                "content_hash": content_hash,
+                "updated_at": updated_at,
+            }
+            for i in range(len(chunks))
+        ]
+        store.upsert(ids, vecs, payloads)
         return RAGUpsertResult(ingested=len(chunks))
 
     chunks_and_src = await ctx.step.run("load-and-chunk", lambda: _load(ctx), output_type=RAGChunkAndSrc)

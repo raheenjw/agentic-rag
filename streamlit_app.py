@@ -1,6 +1,7 @@
 import asyncio
 import concurrent.futures
 from collections.abc import Coroutine
+import hashlib
 from pathlib import Path
 import time
 from typing import TypeVar
@@ -35,16 +36,17 @@ def get_inngest_client() -> inngest.Inngest:
     return inngest.Inngest(app_id="rag_app", is_production=False)
 
 
-def save_uploaded_pdf(file) -> Path:
+def save_uploaded_pdf(file, file_bytes: bytes = None) -> Path:
     uploads_dir = Path("uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)
     file_path = uploads_dir / file.name
-    file_bytes = file.getbuffer()
+    if file_bytes is None:
+        file_bytes = file.getbuffer().tobytes()
     file_path.write_bytes(file_bytes)
     return file_path
 
 
-async def send_rag_ingest_event(pdf_path: Path) -> None:
+async def send_rag_ingest_event(pdf_path: Path, content_hash: str) -> None:
     client = get_inngest_client()
     await client.send(
         inngest.Event(
@@ -52,6 +54,7 @@ async def send_rag_ingest_event(pdf_path: Path) -> None:
             data={
                 "pdf_path": str(pdf_path.resolve()),
                 "source_id": pdf_path.name,
+                "content_hash": content_hash,
             },
         )
     )
@@ -173,11 +176,34 @@ st.markdown("""
     }
     
     /* File uploader */
-    [data-testid="stFileUploader"], [data-testid="stFileUploader"] *,
-    .stFileUploader {
+    [data-testid="stFileUploader"], .stFileUploader {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    [data-testid="stFileUploaderDropzone"] {
         background-color: #faf7f2 !important;
-        border: 2px dashed #d4c4b0;
+        border: 2px dashed #d4c4b0 !important;
         border-radius: 0.5rem;
+    }
+
+    /* Upload PDF button - match primary New Conversation style */
+    .st-key-pdf_uploader button,
+    .st-key-pdf_uploader button[data-baseweb="button"] {
+        background-color: #8b7355 !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 0.5rem !important;
+        font-weight: 500 !important;
+        width: 100% !important;
+    }
+    .st-key-pdf_uploader button:hover {
+        background-color: #6b5444 !important;
+        color: #ffffff !important;
+    }
+    .st-key-pdf_uploader button span,
+    .st-key-pdf_uploader button svg {
+        color: #ffffff !important;
+        fill: #ffffff !important;
     }
     
     /* Metrics */
@@ -286,17 +312,19 @@ with st.sidebar:
         type=["pdf"],
         accept_multiple_files=False,
         label_visibility="collapsed",
+        width="stretch",
         key="pdf_uploader"
     )
     
     if uploaded is not None:
-        # Create a unique identifier for this file
-        file_id = f"{uploaded.name}_{uploaded.size}"
-        
+        file_bytes = uploaded.getbuffer().tobytes()
+        content_hash = hashlib.sha256(file_bytes).hexdigest()
+        file_id = f"{uploaded.name}_{content_hash}"
+
         if file_id not in st.session_state.processed_files:
             with st.spinner("Indexing document..."):
-                path = save_uploaded_pdf(uploaded)
-                run_async(send_rag_ingest_event(path))
+                path = save_uploaded_pdf(uploaded, file_bytes)
+                run_async(send_rag_ingest_event(path, content_hash))
                 time.sleep(0.3)
                 st.session_state.processed_files.add(file_id)
             st.success(f"Added: {path.name}")

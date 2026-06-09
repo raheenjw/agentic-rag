@@ -4,6 +4,7 @@ import pydantic
 class RAGChunkAndSrc(pydantic.BaseModel):
     chunks: list[str]
     source_id: str = None
+    content_hash: str = None
 
 
 class RAGUpsertResult(pydantic.BaseModel):
